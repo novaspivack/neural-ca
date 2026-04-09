@@ -37,8 +37,8 @@ Key mechanics:
 
 Runnable copies on [novaspivack.com](https://www.novaspivack.com) (WordPress may append `-1`, `-2`, … to filenames when the base name already exists in Media):
 
-- **Trend-aware agents:** [hodgepodge_trend_aware-2.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-2.html)
-- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-2.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-2.html)
+- **Trend-aware agents:** [hodgepodge_trend_aware-3.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-3.html)
+- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-3.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-3.html)
 
 ## How to run
 
