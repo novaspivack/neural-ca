@@ -2,7 +2,7 @@
 
 Neural-controller cellular automata experiments — single-file browser simulations in which a small neural network learns to tune the underlying CA rules in real time, steering the system toward sustained complex behavior.
 
-These are not implementations of any known named CA rule. The grid dynamics use a hodgepodge-style update (healthy → infected → ill → healthy), but the parameter tuning layer is original: a tiny MLP predicts how rule changes will affect system behavior, and two cooperating RL agents (explorer + exploiter) use that model to pick actions that maximize a composite complexity signal.
+These are not implementations of any known named CA rule. The grid dynamics use a hodgepodge-style update (healthy → infected → ill → healthy), but the parameter tuning layer is original: a tiny MLP predicts how rule changes will affect system behavior, and two cooperating RL agents (explorer + exploiter) use that model to pick actions that maximize a composite **complexity** signal. A smoothed **boredom** score tracks long flat stretches in live / change / complexity; it **shapes the tabular value update** (mild penalty) and **biases exploration** toward novelty when things get too repetitive — steering toward sustained interesting dynamics without forcing constant instability.
 
 ## Experiments
 
@@ -13,7 +13,7 @@ These are not implementations of any known named CA rule. The grid dynamics use 
 The controller tracks short-term trends in live-cell fraction, change rate, and complexity, and uses them to preempt bad attractors before they fully develop — a *flee mode* that fires when trends indicate the system is headed for death, saturation, or freeze. Two agents alternate: an **explorer** that values novelty (visiting uncharted regions of the live/change space), and an **exploiter** that mines known high-value regions. Both use a 2-step lookahead over the learned dynamics model.
 
 Key mechanics:
-- **Tiny MLP (13→16→4):** trained online, predicts Δlive, Δchange, Δedges, Δsvar for each candidate action
+- **Tiny MLP (15→16→4):** trained online; inputs include behavior, parameters, action one-hot, and boredom features; predicts Δlive, Δchange, Δedges, Δsvar
 - **Value function:** tabular over an 8×8 (live, change) archive; updated with temporal-difference learning
 - **Flee mode:** trend-based early warning — fires before the system actually reaches a danger threshold
 - **2-step lookahead:** scores each action by simulating one follow-up action using the learned model
@@ -39,6 +39,13 @@ Runnable copies on [novaspivack.com](https://www.novaspivack.com) (WordPress may
 
 - **Trend-aware agents:** [hodgepodge_trend_aware-4.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-4.html)
 - **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-4.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-4.html)
+
+## Blog (essays + galleries)
+
+Write-ups that **cross-reference each other** and go deeper on motivation and UI:
+
+- [Neural CA: Trend-Aware Agents Learn to Keep a Cellular Automaton Alive](https://www.novaspivack.com/science/neural-ca-trend-aware-agents)
+- [Neural CA: Spatial Parameter Fields and Greatest-Hits Memory](https://www.novaspivack.com/science/neural-ca-spatial-fields-greatest-hits)
 
 ## How to run
 
