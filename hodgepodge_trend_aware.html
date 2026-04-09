@@ -116,6 +116,8 @@
   const GAMMA=0.92, V_ALPHA=0.15;
   const STUCK_JUMP_THRESHOLD=35, TREND_WINDOW=5;
   const VIABLE_LIVE_SNAPSHOT=0.14, MAX_VIABLE_AGE=9000, ROLLBACK_PROB=0.78;
+  const BOREDOM_WIN=48, BOREDOM_SHAPING=0.55, BOREDOM_NOVELTY=4.0, BOREDOM_BIN_ESC=0.2;
+  const BOREDOM_SAMEBIN_PEN=0.32, BOREDOM_EPS_BOOST=0.12;
   const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
   const tcv=document.getElementById('trace'),tctx=tcv.getContext('2d');
   const acv=document.getElementById('archive'),actx=acv.getContext('2d');
@@ -136,7 +138,8 @@
   let curClusterRatio=0, curComplexity=0;
   let dwellTime=0, lastBin=-1, inDangerStreak=false;
   let liveTrend=0, chgTrend=0, cxTrend=0;
-  const NN_IN=13, NN_H=16, NN_OUT=4, NN_LR=0.02;
+  let boredomEMA=0, boredomInstant=0;
+  const NN_IN=15, NN_H=16, NN_OUT=4, NN_LR=0.02;
   let W1,b1,W2,b2,nnLoss=0,nnTrained=0;
   const agentA={goal:'explorer',label:'explorer',acts:0,deaths:0,eps:0.15};
   const agentB={goal:'exploiter',label:'exploiter',acts:0,deaths:0,eps:0.05};
@@ -192,7 +195,35 @@
     x[0]=b.live;x[1]=b.chg;x[2]=b.edges;x[3]=b.svar;
     x[4]=p.g/30;x[5]=p.k1/15;x[6]=p.k2/15;
     x[7+actIdx(act)]=1;
+    x[13]=boredomEMA;
+    x[14]=boredomInstant;
     return x;
+  }
+  function updateBoredomMetrics(){
+    if(histM.length<BOREDOM_WIN){ boredomInstant=0; return; }
+    const sl=histM.slice(-BOREDOM_WIN);
+    let minL=1,maxL=0,minCh=1,maxCh=0,minCx=1e9,maxCx=-1e9;
+    for(const r of sl){
+      minL=Math.min(minL,r[0]);maxL=Math.max(maxL,r[0]);
+      minCh=Math.min(minCh,r[1]);maxCh=Math.max(maxCh,r[1]);
+      minCx=Math.min(minCx,r[4]);maxCx=Math.max(maxCx,r[4]);
+    }
+    const cur=sl[sl.length-1];
+    const live=cur[0], chg=cur[1], cx=cur[4];
+    if(live<0.08){
+      boredomInstant=0;
+      boredomEMA*=0.94;
+      return;
+    }
+    const spanL=maxL-minL, spanCh=maxCh-minCh, spanCx=maxCx-minCx;
+    const stab=clip01(1-spanL/0.07)*clip01(1-spanCh/0.09)*clip01(1-spanCx/0.14);
+    const interest=clip01(cx/1.15)*0.52+clip01(chg/0.22)*0.48;
+    const deficit=1-interest;
+    let raw=stab*(0.28+0.72*deficit);
+    if(live<0.11) raw*=0.65;
+    raw=Math.min(1,raw);
+    boredomInstant=raw;
+    boredomEMA=boredomEMA*0.991+raw*0.009;
   }
   function actionInBounds(act,p){const v=p[act.param], max=act.param==='g'?30:15;return !((act.dir>0&&v>=max)||(act.dir<0&&v<=1));}
   function clip01(x){return Math.max(0,Math.min(1,x));}
@@ -270,7 +301,9 @@
   }
   function pickAction(agent,behavior,params){
     if(nnTrained<30) return ACTIONS[(Math.random()*6)|0];
-    if(Math.random()<agent.eps) return ACTIONS[(Math.random()*6)|0];
+    const bore=boredomEMA;
+    const effEps=Math.min(0.55, agent.eps + bore*BOREDOM_EPS_BOOST);
+    if(Math.random()<effEps) return ACTIONS[(Math.random()*6)|0];
     const dwellPressure=Math.min(3, dwellTime*0.15);
     let best=null, bestScore=-Infinity;
     for(const act of ACTIONS){
@@ -288,6 +321,9 @@
       if(agent.goal==='explorer') immediate+=novelty*2.5+novelty*dwellPressure;
       else immediate+=novelty*0.5+novelty*dwellPressure*1.5;
       if(nextBin!==curBinIdx) immediate+=0.1+dwellPressure*0.3;
+      immediate+=bore*BOREDOM_NOVELTY*novelty;
+      if(nextBin!==curBinIdx) immediate+=bore*BOREDOM_BIN_ESC;
+      if(bore>0.5 && nextBin===curBinIdx) immediate-=bore*BOREDOM_SAMEBIN_PEN;
       if(nL<0.10) immediate-=15;
       if(nL>0.95) immediate-=15;
       if(nC>0.95 && curClusterRatio<0.6) immediate-=10;
@@ -359,6 +395,7 @@
     prevBehavior=null;prevAction=null;prevParams=null;
     lastActor=null;agentToggle=0;
     lvTick=-1;
+    boredomEMA=0;boredomInstant=0;
   }
   function archIdx(live,chg){
     const li=Math.min(ARCH_BINS-1,Math.max(0,Math.floor(live*ARCH_BINS)));
@@ -486,6 +523,7 @@
     liveTrend=getTrend(0,TREND_WINDOW);
     chgTrend=getTrend(1,TREND_WINDOW);
     cxTrend=getTrend(4,TREND_WINDOW);
+    updateBoredomMetrics();
     let action='holding';
     if(autoEl.checked && tick%TUNE_EVERY===0){
       action=controllerStep({live,chg,edges:edN,svar});
@@ -502,7 +540,8 @@
     curBinIdx=visitArchive(m);
     if(curBinIdx===lastBin) dwellTime++; else { dwellTime=0; lastBin=curBinIdx; }
     if(prevBinIdx>=0){
-      V_table[prevBinIdx]+=V_ALPHA*(curComplexity+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
+      const shapedR=curComplexity-BOREDOM_SHAPING*boredomEMA;
+      V_table[prevBinIdx]+=V_ALPHA*(shapedR+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
     }
     captureViableIf(m);
     const danger=dangerLevel(m);
