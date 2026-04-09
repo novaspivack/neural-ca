@@ -35,10 +35,10 @@ Key mechanics:
 
 ## Live demos
 
-Runnable copies on [novaspivack.com](https://www.novaspivack.com) (Media filenames may include a `-1` suffix if WordPress disambiguated an upload):
+Runnable copies on [novaspivack.com](https://www.novaspivack.com) (WordPress may append `-1`, `-2`, … to filenames when the base name already exists in Media):
 
-- **Trend-aware agents:** [hodgepodge_trend_aware-1.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-1.html)
-- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-1.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-1.html)
+- **Trend-aware agents:** [hodgepodge_trend_aware-2.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-2.html)
+- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-2.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-2.html)
 
 ## How to run
 
