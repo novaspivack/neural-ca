@@ -31,14 +31,14 @@ Key mechanics:
 - **Extended action space:** 12 actions — shift field mean up/down, bump a random location in the g field, smooth all fields, adjust growthExp or diagWeight
 - **Beam search lookahead (width 3, depth 3):** replaces the 2-step lookahead; explores action sequences rather than single actions
 - **Greatest-hits memory:** up to 6 snapshots of high-complexity states, including full field state; restored on stuck detection with 70% probability
-- **Larger NN (21→20→4):** wider input to accommodate the richer parameter state
+- **Larger NN (23→20→4):** wider input (includes boredom features) for the richer parameter state
 
 ## Live demos
 
 Runnable copies on [novaspivack.com](https://www.novaspivack.com) (WordPress may append `-1`, `-2`, … to filenames when the base name already exists in Media):
 
-- **Trend-aware agents:** [hodgepodge_trend_aware-3.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-3.html)
-- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-3.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-3.html)
+- **Trend-aware agents:** [hodgepodge_trend_aware-4.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-4.html)
+- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-4.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-4.html)
 
 ## How to run
 
