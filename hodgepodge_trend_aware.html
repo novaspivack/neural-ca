@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hodgepodge CA — trend-aware agents</title>
+<style>
+  :root {
+    --color-background-primary: #1a1a1a;
+    --color-background-secondary: #242424;
+    --color-background-tertiary: #2a2a2a;
+    --color-text-primary: #e8e8e8;
+    --color-text-secondary: #888;
+    --color-text-tertiary: #555;
+    --color-border-tertiary: rgba(255,255,255,0.15);
+    --color-border-secondary: rgba(255,255,255,0.3);
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 24px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .page { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 20px; }
+  button {
+    background: transparent;
+    color: var(--color-text-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    height: 32px;
+  }
+  button:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
+  button:active { transform: scale(0.98); }
+  select {
+    background: var(--color-background-secondary);
+    color: var(--color-text-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    height: 32px;
+  }
+  input[type="range"] { accent-color: #378ADD; height: 20px; }
+  input[type="checkbox"] { accent-color: #378ADD; }
+  label { font-size: 13px; color: var(--color-text-secondary); }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Hodgepodge CA — trend-aware agents</h1>
+<div class="sub">Two learning agents (explorer + exploiter) tune a hodgepodge cellular automaton toward maximum complexity. Tiny MLP learns dynamics, value function learns long-term reward, 2-step lookahead, flee mode preempts cliffs before they're reached.</div>
+<div style="display:flex;flex-direction:column;gap:12px;padding:1rem 0;">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <button id="run">Run / pause</button>
+    <button id="stepBtn">Step</button>
+    <button id="reset">Reset</button>
+    <button id="forget">Forget</button>
+    <label><input type="checkbox" id="auto" checked style="vertical-align:middle;"> auto</label>
+    <label>Symmetry</label>
+    <select id="sym"><option value="8" selected>8-fold</option><option value="4">4-fold</option><option value="1">none</option></select>
+    <label>Seed</label>
+    <select id="ic"><option value="sparse" selected>sparse random</option><option value="dense">dense random</option><option value="noise">full noise</option><option value="single">single point</option><option value="dots">scattered dots</option><option value="ring">ring</option><option value="cross">cross</option><option value="rings">concentric rings</option></select>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <label style="min-width:32px;">g</label>
+    <input type="range" id="gv" min="1" max="30" step="1" value="4" style="width:140px;">
+    <span id="go" style="font-size:13px;font-family:var(--font-mono);min-width:24px;">4</span>
+    <label style="min-width:32px;">k1</label>
+    <input type="range" id="k1v" min="1" max="15" step="1" value="2" style="width:140px;">
+    <span id="k1o" style="font-size:13px;font-family:var(--font-mono);min-width:24px;">2</span>
+    <label style="min-width:32px;">k2</label>
+    <input type="range" id="k2v" min="1" max="15" step="1" value="2" style="width:140px;">
+    <span id="k2o" style="font-size:13px;font-family:var(--font-mono);min-width:24px;">2</span>
+    <label>Skip</label>
+    <input type="range" id="fs" min="1" max="20" step="1" value="12" style="width:80px;">
+    <span id="fso" style="font-size:13px;font-family:var(--font-mono);min-width:20px;">12</span>
+  </div>
+  <div style="height:42px;display:flex;flex-direction:column;justify-content:center;font-size:13px;color:var(--color-text-secondary);font-family:var(--font-mono);overflow:hidden;">
+    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">tick <span id="tk" style="color:var(--color-text-primary);">0</span> · live <span id="lv" style="color:var(--color-text-primary);">—</span><span id="lvt" style="color:var(--color-text-tertiary);"></span> · chg <span id="ch" style="color:var(--color-text-primary);">—</span><span id="cht" style="color:var(--color-text-tertiary);"></span> · cluster <span id="cl" style="color:var(--color-text-primary);">—</span> · <span style="color:hsl(140,75%,55%);">cx <span id="cx" style="color:var(--color-text-primary);">—</span></span> · knows <span id="kw" style="color:var(--color-text-primary);">0</span>/64</div>
+    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">NN <span id="loss" style="color:var(--color-text-primary);">—</span> (<span id="tr" style="color:var(--color-text-primary);">0</span>) · dwell <span id="dw" style="color:var(--color-text-primary);">0</span> · <span style="color:hsl(180,80%,55%);">explorer</span> <span id="ac" style="color:var(--color-text-primary);">0/0</span> · <span style="color:hsl(20,80%,55%);">exploiter</span> <span id="bc" style="color:var(--color-text-primary);">0/0</span> · <span id="cs" style="color:var(--color-text-primary);">idle</span></div>
+  </div>
+  <canvas id="cv" style="width:100%;height:420px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);"></canvas>
+  <div style="display:flex;gap:16px;align-items:center;font-size:12px;color:var(--color-text-secondary);flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:2px;background:hsl(0,75%,55%);"></span>g</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:2px;background:hsl(140,75%,55%);"></span>k1</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:2px;background:hsl(220,75%,60%);"></span>k2</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:2px;background:hsl(40,75%,55%);"></span>live</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:10px;height:2px;background:hsl(140,75%,55%);"></span>complexity</span>
+    <span style="margin-left:auto;">archive · color = learned value</span>
+  </div>
+  <div style="display:flex;gap:12px;align-items:stretch;">
+    <canvas id="trace" style="flex:1;height:96px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);"></canvas>
+    <canvas id="archive" style="width:96px;height:96px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);"></canvas>
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  const N=24, GRID=144, ILL=N-1;
+  const TUNE_EVERY=10, HIST_MAX=240, ARCH_BINS=8;
+  const DEFAULT_G=4, DEFAULT_K1=2, DEFAULT_K2=2;
+  const GAMMA=0.92, V_ALPHA=0.15;
+  const STUCK_JUMP_THRESHOLD=35, TREND_WINDOW=5;
+  const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+  const tcv=document.getElementById('trace'),tctx=tcv.getContext('2d');
+  const acv=document.getElementById('archive'),actx=acv.getContext('2d');
+  const symEl=document.getElementById('sym'),icEl=document.getElementById('ic');
+  const gvEl=document.getElementById('gv'),go=document.getElementById('go');
+  const k1vEl=document.getElementById('k1v'),k1o=document.getElementById('k1o');
+  const k2vEl=document.getElementById('k2v'),k2o=document.getElementById('k2o');
+  const fsEl=document.getElementById('fs'),fso=document.getElementById('fso');
+  const autoEl=document.getElementById('auto');
+  const tkEl=document.getElementById('tk'),lvEl=document.getElementById('lv'),lvtEl=document.getElementById('lvt'),chEl=document.getElementById('ch'),chtEl=document.getElementById('cht'),clEl=document.getElementById('cl'),cxEl=document.getElementById('cx');
+  const kwEl=document.getElementById('kw'),lossEl=document.getElementById('loss'),trEl=document.getElementById('tr'),dwEl=document.getElementById('dw');
+  const acEl=document.getElementById('ac'),bcEl=document.getElementById('bc'),csEl=document.getElementById('cs');
+  let g=new Uint8Array(GRID*GRID), nxt=new Uint8Array(GRID*GRID);
+  const changedMask=new Uint8Array(GRID*GRID);
+  let running=false, tick=0, frameCounter=0;
+  let histM=[], histP=[];
+  let archive, V_table, knowledge, curBinIdx, prevBinIdx=-1;
+  let curClusterRatio=0, curComplexity=0;
+  let dwellTime=0, lastBin=-1, inDangerStreak=false;
+  let liveTrend=0, chgTrend=0, cxTrend=0;
+  const NN_IN=13, NN_H=16, NN_OUT=4, NN_LR=0.02;
+  let W1,b1,W2,b2,nnLoss=0,nnTrained=0;
+  const agentA={goal:'explorer',label:'explorer',acts:0,deaths:0,eps:0.15};
+  const agentB={goal:'exploiter',label:'exploiter',acts:0,deaths:0,eps:0.05};
+  let activeAgent=agentA, lastActor=null, agentToggle=0;
+  let prevBehavior=null, prevAction=null, prevParams=null;
+  function nnInit(){
+    W1=new Float32Array(NN_H*NN_IN);b1=new Float32Array(NN_H);
+    W2=new Float32Array(NN_OUT*NN_H);b2=new Float32Array(NN_OUT);
+    const s1=Math.sqrt(2/NN_IN), s2=Math.sqrt(2/NN_H);
+    for(let i=0;i<W1.length;i++) W1[i]=(Math.random()*2-1)*s1;
+    for(let i=0;i<W2.length;i++) W2[i]=(Math.random()*2-1)*s2;
+    nnLoss=0;nnTrained=0;
+  }
+  function nnForward(x){
+    const h=new Float32Array(NN_H);
+    for(let i=0;i<NN_H;i++){
+      let s=b1[i];
+      for(let j=0;j<NN_IN;j++) s+=W1[i*NN_IN+j]*x[j];
+      h[i]=Math.tanh(s);
+    }
+    const y=new Float32Array(NN_OUT);
+    for(let i=0;i<NN_OUT;i++){
+      let s=b2[i];
+      for(let j=0;j<NN_H;j++) s+=W2[i*NN_H+j]*h[j];
+      y[i]=s;
+    }
+    return [y,h];
+  }
+  function nnTrain(x,target){
+    const [y,h]=nnForward(x);
+    let loss=0;
+    const dy=new Float32Array(NN_OUT);
+    for(let i=0;i<NN_OUT;i++){const e=y[i]-target[i];loss+=e*e;dy[i]=2*e;}
+    const dh=new Float32Array(NN_H);
+    for(let i=0;i<NN_OUT;i++) for(let j=0;j<NN_H;j++) dh[j]+=W2[i*NN_H+j]*dy[i];
+    for(let i=0;i<NN_OUT;i++){
+      for(let j=0;j<NN_H;j++) W2[i*NN_H+j]-=NN_LR*dy[i]*h[j];
+      b2[i]-=NN_LR*dy[i];
+    }
+    for(let i=0;i<NN_H;i++){
+      const dhp=dh[i]*(1-h[i]*h[i]);
+      for(let j=0;j<NN_IN;j++) W1[i*NN_IN+j]-=NN_LR*dhp*x[j];
+      b1[i]-=NN_LR*dhp;
+    }
+    nnLoss=nnLoss*0.9+loss*0.1;
+    nnTrained++;
+  }
+  const ACTIONS=[{param:'g',dir:1},{param:'g',dir:-1},{param:'k1',dir:1},{param:'k1',dir:-1},{param:'k2',dir:1},{param:'k2',dir:-1}];
+  function actIdx(act){for(let i=0;i<ACTIONS.length;i++) if(ACTIONS[i].param===act.param&&ACTIONS[i].dir===act.dir) return i;return -1;}
+  function makeInput(b,p,act){
+    const x=new Float32Array(NN_IN);
+    x[0]=b.live;x[1]=b.chg;x[2]=b.edges;x[3]=b.svar;
+    x[4]=p.g/30;x[5]=p.k1/15;x[6]=p.k2/15;
+    x[7+actIdx(act)]=1;
+    return x;
+  }
+  function actionInBounds(act,p){const v=p[act.param], max=act.param==='g'?30:15;return !((act.dir>0&&v>=max)||(act.dir<0&&v<=1));}
+  function clip01(x){return Math.max(0,Math.min(1,x));}
+  function complexity(live,chg,edges,svar,cluster){
+    if(live<0.05) return 0;
+    const livePart=live*(1-live*0.5);
+    const motion=cluster*(0.5+chg*0.5);
+    const structure=edges*Math.sqrt(svar);
+    return livePart*structure*motion*8;
+  }
+  function dangerLevel(m){
+    if(m.live<0.08) return 'dead';
+    if(m.live>0.95 && m.chg<0.05) return 'frozen';
+    if(m.chg>0.95 && curClusterRatio<0.6) return 'static';
+    return null;
+  }
+  function getTrend(idx,n){
+    if(histM.length<n) return 0;
+    const r=histM.slice(-n);
+    return r[r.length-1][idx]-r[0][idx];
+  }
+  function detectFleeMode(b){
+    if(b.live<0.30 && liveTrend<-0.005) return {mode:'death'};
+    if(liveTrend<-0.06) return {mode:'death'};
+    if(b.live>0.80 && liveTrend>0.005) return {mode:'sat'};
+    if(liveTrend>0.06) return {mode:'sat'};
+    if(b.chg<0.12 && chgTrend<-0.003) return {mode:'freeze'};
+    if(b.chg>0.85 && curClusterRatio<0.7 && chgTrend>0.003) return {mode:'noise'};
+    return null;
+  }
+  function smartRescue(behavior,params){
+    let best=null, bestScore=-Infinity;
+    for(const act of ACTIONS){
+      if(!actionInBounds(act,params)) continue;
+      const x=makeInput(behavior,params,act);
+      const [y]=nnForward(x);
+      const nL=clip01(behavior.live+y[0]);
+      const nC=clip01(behavior.chg+y[1]);
+      const s=Math.min(nL-0.10,0.92-nL,nC-0.06,0.95-nC);
+      if(s>bestScore){bestScore=s;best=act;}
+    }
+    return best||ACTIONS[(Math.random()*6)|0];
+  }
+  function pickFleeAction(behavior,params,flee){
+    let best=null, bestScore=-Infinity;
+    for(const act of ACTIONS){
+      if(!actionInBounds(act,params)) continue;
+      let repeatPen=0;
+      if(prevAction && prevAction.param===act.param && prevAction.dir===act.dir) repeatPen=5;
+      const x=makeInput(behavior,params,act);
+      const [y]=nnForward(x);
+      const nL=clip01(behavior.live+y[0]);
+      const nC=clip01(behavior.chg+y[1]);
+      let s=0;
+      if(flee.mode==='death'){s=nL*10+nC*2;s-=Math.max(0,0.10-nL)*50;}
+      else if(flee.mode==='sat'){s=(1-nL)*10+nC*2;s-=Math.max(0,nL-0.92)*50;}
+      else if(flee.mode==='freeze'){s=nC*10+nL*2;s-=Math.max(0,0.06-nC)*30;}
+      else if(flee.mode==='noise'){s=(1-nC)*10+nL*2;}
+      s-=repeatPen;
+      if(s>bestScore){bestScore=s;best=act;}
+    }
+    return best||ACTIONS[(Math.random()*6)|0];
+  }
+  function pickAction(agent,behavior,params){
+    if(nnTrained<30) return ACTIONS[(Math.random()*6)|0];
+    if(Math.random()<agent.eps) return ACTIONS[(Math.random()*6)|0];
+    const dwellPressure=Math.min(3, dwellTime*0.15);
+    let best=null, bestScore=-Infinity;
+    for(const act of ACTIONS){
+      if(!actionInBounds(act,params)) continue;
+      const x=makeInput(behavior,params,act);
+      const [y]=nnForward(x);
+      const nL=clip01(behavior.live+y[0]);
+      const nC=clip01(behavior.chg+y[1]);
+      const nE=clip01(behavior.edges+y[2]);
+      const nS=clip01(behavior.svar+y[3]);
+      const predC=complexity(nL,nC,nE,nS,curClusterRatio);
+      const nextBin=archIdx(nL,nC);
+      const novelty=1/(1+archive[nextBin].visits);
+      let immediate=predC+GAMMA*V_table[nextBin];
+      if(agent.goal==='explorer') immediate+=novelty*2.5+novelty*dwellPressure;
+      else immediate+=novelty*0.5+novelty*dwellPressure*1.5;
+      if(nextBin!==curBinIdx) immediate+=0.1+dwellPressure*0.3;
+      if(nL<0.10) immediate-=15;
+      if(nL>0.95) immediate-=15;
+      if(nC>0.95 && curClusterRatio<0.6) immediate-=10;
+      const nextBehavior={live:nL,chg:nC,edges:nE,svar:nS};
+      const nextParams={g:params.g,k1:params.k1,k2:params.k2};
+      nextParams[act.param]=Math.max(1,Math.min(act.param==='g'?30:15,nextParams[act.param]+act.dir));
+      let bestFollowup=-Infinity;
+      for(const a2 of ACTIONS){
+        if(!actionInBounds(a2,nextParams)) continue;
+        const x2=makeInput(nextBehavior,nextParams,a2);
+        const [y2]=nnForward(x2);
+        const nL2=clip01(nL+y2[0]);
+        const nC2=clip01(nC+y2[1]);
+        const nE2=clip01(nE+y2[2]);
+        const nS2=clip01(nS+y2[3]);
+        let f=complexity(nL2,nC2,nE2,nS2,curClusterRatio);
+        if(nL2<0.10) f-=15;
+        if(nL2>0.95) f-=15;
+        if(nC2>0.95 && curClusterRatio<0.6) f-=10;
+        if(f>bestFollowup) bestFollowup=f;
+      }
+      const total=immediate + GAMMA*bestFollowup*0.5;
+      if(total>bestScore){bestScore=total;best=act;}
+    }
+    return best||ACTIONS[(Math.random()*6)|0];
+  }
+  function freshLearningState(){
+    archive=new Array(ARCH_BINS*ARCH_BINS);
+    for(let i=0;i<archive.length;i++) archive[i]={visits:0,lastTick:-1};
+    V_table=new Float32Array(ARCH_BINS*ARCH_BINS);
+    knowledge=0;curBinIdx=-1;prevBinIdx=-1;
+    dwellTime=0;lastBin=-1;inDangerStreak=false;
+    liveTrend=0;chgTrend=0;cxTrend=0;
+    nnInit();
+    agentA.acts=0;agentA.deaths=0;
+    agentB.acts=0;agentB.deaths=0;
+    prevBehavior=null;prevAction=null;prevParams=null;
+    lastActor=null;agentToggle=0;
+  }
+  function archIdx(live,chg){
+    const li=Math.min(ARCH_BINS-1,Math.max(0,Math.floor(live*ARCH_BINS)));
+    const ci=Math.min(ARCH_BINS-1,Math.max(0,Math.floor(chg*ARCH_BINS)));
+    return li*ARCH_BINS+ci;
+  }
+  function visitArchive(m){
+    const i=archIdx(m.live,m.chg);
+    if(archive[i].visits===0) knowledge++;
+    archive[i].visits++;
+    archive[i].lastTick=tick;
+    return i;
+  }
+  function setSlider(el,readout,val,min,max){val=Math.max(min,Math.min(max,val));el.value=val;readout.textContent=val;}
+  function resetParams(){
+    setSlider(gvEl,go,DEFAULT_G,1,30);
+    setSlider(k1vEl,k1o,DEFAULT_K1,1,15);
+    setSlider(k2vEl,k2o,DEFAULT_K2,1,15);
+  }
+  function randomizeParams(){
+    setSlider(gvEl,go,1+((Math.random()*30)|0),1,30);
+    setSlider(k1vEl,k1o,1+((Math.random()*8)|0),1,15);
+    setSlider(k2vEl,k2o,1+((Math.random()*8)|0),1,15);
+  }
+  function placeSym(x,y,v){
+    const sym=symEl.value;
+    if(sym==='8'){
+      const pts=[[x,y],[y,x],[GRID-1-x,y],[GRID-1-y,x],[x,GRID-1-y],[y,GRID-1-x],[GRID-1-x,GRID-1-y],[GRID-1-y,GRID-1-x]];
+      for(const [a,b] of pts){if(a>=0&&a<GRID&&b>=0&&b<GRID)g[b*GRID+a]=v;}
+    } else if(sym==='4'){
+      const pts=[[x,y],[GRID-1-x,y],[x,GRID-1-y],[GRID-1-x,GRID-1-y]];
+      for(const [a,b] of pts){if(a>=0&&a<GRID&&b>=0&&b<GRID)g[b*GRID+a]=v;}
+    } else { if(x>=0&&x<GRID&&y>=0&&y<GRID)g[y*GRID+x]=v; }
+  }
+  function wedgeCells(){
+    const C=GRID/2,cells=[],sym=symEl.value;
+    if(sym==='8'){for(let y=0;y<C;y++)for(let x=0;x<=y;x++)cells.push([x,y]);}
+    else if(sym==='4'){for(let y=0;y<C;y++)for(let x=0;x<C;x++)cells.push([x,y]);}
+    else {for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++)cells.push([x,y]);}
+    return cells;
+  }
+  function init(){
+    g.fill(0);tick=0;histM=[];histP=[];
+    freshLearningState();
+    resetParams();
+    const C=GRID/2, mode=icEl.value;
+    if(mode==='sparse'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.04)placeSym(x,y,ILL);else if(r<0.2)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
+    else if(mode==='dense'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.15)placeSym(x,y,ILL);else if(r<0.55)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
+    else if(mode==='noise'){for(const [x,y] of wedgeCells())placeSym(x,y,(Math.random()*N)|0);}
+    else if(mode==='single'){placeSym((C|0)-1,(C|0)-1,ILL);}
+    else if(mode==='dots'){const W=wedgeCells();for(let k=0;k<12;k++){const [x,y]=W[(Math.random()*W.length)|0];placeSym(x,y,ILL);}}
+    else if(mode==='ring'){const R=GRID*0.28;for(const [x,y] of wedgeCells()){const dx=x-C+0.5,dy=y-C+0.5;if(Math.abs(Math.sqrt(dx*dx+dy*dy)-R)<1.2)placeSym(x,y,ILL);}}
+    else if(mode==='cross'){for(const [x,y] of wedgeCells()){if(Math.abs(x-(C-0.5))<2||Math.abs(y-(C-0.5))<2)placeSym(x,y,ILL);}}
+    else if(mode==='rings'){for(const [x,y] of wedgeCells()){const dx=x-C+0.5,dy=y-C+0.5;const d=Math.sqrt(dx*dx+dy*dy);placeSym(x,y,Math.floor(((Math.sin(d*0.5)+1)*0.5)*ILL));}}
+    render();drawTrace();drawArchive();
+  }
+  function at(x,y){
+    if(x<0)x=-x-1; else if(x>=GRID)x=2*GRID-1-x;
+    if(y<0)y=-y-1; else if(y>=GRID)y=2*GRID-1-y;
+    return g[y*GRID+x];
+  }
+  function reseedSparse(){
+    const W=wedgeCells();
+    for(let k=0;k<8;k++){const [x,y]=W[(Math.random()*W.length)|0];placeSym(x,y,ILL);}
+  }
+  function step(){
+    const G=+gvEl.value,K1=+k1vEl.value,K2=+k2vEl.value;
+    let healthy=0,changed=0,edges=0,sum=0,sumSq=0;
+    changedMask.fill(0);
+    for(let y=0;y<GRID;y++){
+      for(let x=0;x<GRID;x++){
+        const idx=y*GRID+x, s=g[idx];
+        let v;
+        if(s===ILL){v=0;}
+        else if(s===0){
+          let A=0,B=0;
+          for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+            if(!dx&&!dy)continue;
+            const ns=at(x+dx,y+dy);
+            if(ns===ILL)B++; else if(ns>0)A++;
+          }
+          v=Math.floor(A/K1)+Math.floor(B/K2);
+        } else {
+          let su=s,cnt=1;
+          for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+            if(!dx&&!dy)continue;
+            const ns=at(x+dx,y+dy);
+            if(ns>0){su+=ns;cnt++;}
+          }
+          v=Math.floor(su/cnt)+G;
+        }
+        if(v>ILL)v=ILL;if(v<0)v=0;
+        if(v!==s){changed++;changedMask[idx]=1;}
+        nxt[idx]=v;
+        sum+=v;sumSq+=v*v;
+        if(v===0)healthy++;
+      }
+    }
+    for(let y=0;y<GRID;y++)for(let x=0;x<GRID-1;x++){if(nxt[y*GRID+x]!==nxt[y*GRID+x+1])edges++;}
+    for(let y=0;y<GRID-1;y++)for(let x=0;x<GRID;x++){if(nxt[y*GRID+x]!==nxt[(y+1)*GRID+x])edges++;}
+    let clustered=0;
+    for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++){
+      const idx=y*GRID+x;
+      if(!changedMask[idx]) continue;
+      let nb=false;
+      if(x>0 && changedMask[idx-1]) nb=true;
+      else if(x<GRID-1 && changedMask[idx+1]) nb=true;
+      else if(y>0 && changedMask[idx-GRID]) nb=true;
+      else if(y<GRID-1 && changedMask[idx+GRID]) nb=true;
+      if(nb) clustered++;
+    }
+    const tmp=g;g=nxt;nxt=tmp;
+    tick++;
+    const total=g.length;
+    const live=1-healthy/total;
+    const chg=changed/total;
+    const edN=edges/(2*total);
+    const mean=sum/total;
+    const svar=Math.max(0,(sumSq/total-mean*mean))/(ILL*ILL/4);
+    curClusterRatio=changed>0?clustered/changed:0;
+    curComplexity=complexity(live,chg,edN,svar,curClusterRatio);
+    histM.push([live,chg,edN,svar,curComplexity]);
+    if(histM.length>HIST_MAX)histM.shift();
+    histP.push([+gvEl.value,+k1vEl.value,+k2vEl.value]);
+    if(histP.length>HIST_MAX)histP.shift();
+    liveTrend=getTrend(0,TREND_WINDOW);
+    chgTrend=getTrend(1,TREND_WINDOW);
+    cxTrend=getTrend(4,TREND_WINDOW);
+    let action='holding';
+    if(autoEl.checked && tick%TUNE_EVERY===0){
+      action=controllerStep({live,chg,edges:edN,svar});
+    }
+    updateInfo(live,chg,action);
+  }
+  function controllerStep(m){
+    const params={g:+gvEl.value,k1:+k1vEl.value,k2:+k2vEl.value};
+    if(prevBehavior&&prevAction&&prevParams){
+      const x=makeInput(prevBehavior,prevParams,prevAction);
+      const t=new Float32Array([m.live-prevBehavior.live,m.chg-prevBehavior.chg,m.edges-prevBehavior.edges,m.svar-prevBehavior.svar]);
+      nnTrain(x,t);
+    }
+    curBinIdx=visitArchive(m);
+    if(curBinIdx===lastBin) dwellTime++; else { dwellTime=0; lastBin=curBinIdx; }
+    if(prevBinIdx>=0){
+      V_table[prevBinIdx]+=V_ALPHA*(curComplexity+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
+    }
+    if(dwellTime>STUCK_JUMP_THRESHOLD){
+      randomizeParams();
+      dwellTime=0;
+      prevBehavior=null;prevAction=null;prevParams=null;
+      prevBinIdx=curBinIdx;
+      return 'EXPLORE jump';
+    }
+    const danger=dangerLevel(m);
+    if(danger){
+      if(!inDangerStreak && lastActor) lastActor.deaths++;
+      inDangerStreak=true;
+      if(danger==='dead' && tick%30===0) reseedSparse();
+      const act=smartRescue(m,params);
+      applyAction(act);
+      if(prevBinIdx>=0) V_table[prevBinIdx]-=0.5;
+      prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
+      prevAction=act;
+      prevParams=params;
+      prevBinIdx=curBinIdx;
+      return danger.toUpperCase()+' '+act.param+(act.dir>0?'↑':'↓');
+    }
+    inDangerStreak=false;
+    const flee=detectFleeMode(m);
+    if(flee){
+      const act=pickFleeAction(m,params,flee);
+      applyAction(act);
+      if(lastActor) lastActor.acts++;
+      prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
+      prevAction=act;
+      prevParams=params;
+      prevBinIdx=curBinIdx;
+      return 'FLEE-'+flee.mode+' '+act.param+(act.dir>0?'↑':'↓');
+    }
+    agentToggle++;
+    activeAgent=(agentToggle%2===0)?agentA:agentB;
+    lastActor=activeAgent;
+    const act=pickAction(activeAgent,m,params);
+    applyAction(act);
+    activeAgent.acts++;
+    prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
+    prevAction=act;
+    prevParams=params;
+    prevBinIdx=curBinIdx;
+    return activeAgent.label+' '+act.param+(act.dir>0?'↑':'↓');
+  }
+  function applyAction(act){
+    if(act.param==='g'){setSlider(gvEl,go,+gvEl.value+act.dir,1,30);}
+    else if(act.param==='k1'){setSlider(k1vEl,k1o,+k1vEl.value+act.dir,1,15);}
+    else if(act.param==='k2'){setSlider(k2vEl,k2o,+k2vEl.value+act.dir,1,15);}
+  }
+  function trendArrow(t){if(t>0.02) return '↑'; if(t<-0.02) return '↓'; return '·';}
+  function updateInfo(live,chg,action){
+    tkEl.textContent=tick;
+    lvEl.textContent=live.toFixed(2);
+    lvtEl.textContent=trendArrow(liveTrend);
+    chEl.textContent=chg.toFixed(2);
+    chtEl.textContent=trendArrow(chgTrend);
+    clEl.textContent=curClusterRatio.toFixed(2);
+    cxEl.textContent=curComplexity.toFixed(2);
+    kwEl.textContent=knowledge;
+    lossEl.textContent=nnLoss.toFixed(3);
+    trEl.textContent=nnTrained;
+    dwEl.textContent=dwellTime;
+    acEl.textContent=agentA.acts+'/'+agentA.deaths;
+    bcEl.textContent=agentB.acts+'/'+agentB.deaths;
+    csEl.textContent=action;
+  }
+  function render(){
+    cv.width=cv.clientWidth;cv.height=cv.clientHeight;
+    const size=Math.min(cv.width,cv.height);
+    const cell=size/GRID;
+    const offX=(cv.width-size)/2,offY=(cv.height-size)/2;
+    ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--color-background-secondary').trim()||'#242424';
+    ctx.fillRect(0,0,cv.width,cv.height);
+    for(let y=0;y<GRID;y++)for(let x=0;x<GRID;x++){
+      const s=g[y*GRID+x];
+      if(s===0)continue;
+      const t=s/ILL;
+      ctx.fillStyle='hsl('+(240-t*240)+',80%,'+(25+t*45)+'%)';
+      ctx.fillRect(offX+x*cell,offY+y*cell,cell+0.6,cell+0.6);
+    }
+    drawTrace();
+    drawArchive();
+  }
+  function drawTrace(){
+    tcv.width=tcv.clientWidth;tcv.height=tcv.clientHeight;
+    const W=tcv.width,H=tcv.height;
+    tctx.clearRect(0,0,W,H);
+    if(histP.length<2)return;
+    const n=histP.length,xStep=W/HIST_MAX;
+    function line(idx,buf,maxV,color){
+      tctx.beginPath();tctx.strokeStyle=color;tctx.lineWidth=1.4;
+      for(let i=0;i<n;i++){
+        const v=buf[i][idx];
+        const x=i*xStep;
+        const y=H-(v/maxV)*(H-4)-2;
+        if(i===0)tctx.moveTo(x,y); else tctx.lineTo(x,y);
+      }
+      tctx.stroke();
+    }
+    line(0,histP,30,'hsl(0,75%,55%)');
+    line(1,histP,15,'hsl(140,75%,55%)');
+    line(2,histP,15,'hsl(220,75%,60%)');
+    line(0,histM,1,'hsl(40,75%,55%)');
+    line(4,histM,3,'hsl(140,75%,55%)');
+  }
+  function drawArchive(){
+    acv.width=acv.clientWidth;acv.height=acv.clientHeight;
+    const W=acv.width,H=acv.height;
+    actx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--color-background-secondary').trim()||'#242424';
+    actx.fillRect(0,0,W,H);
+    const cw=W/ARCH_BINS, ch=H/ARCH_BINS;
+    let maxV=0.001, minV=0;
+    for(const v of V_table){if(v>maxV)maxV=v;if(v<minV)minV=v;}
+    const range=Math.max(maxV-minV,0.001);
+    for(let li=0;li<ARCH_BINS;li++){
+      for(let ci=0;ci<ARCH_BINS;ci++){
+        const i=li*ARCH_BINS+ci;
+        if(archive[i].visits===0) continue;
+        const v=V_table[i];
+        const t=Math.max(0,Math.min(1,(v-minV)/range));
+        const hue=t*120;
+        actx.fillStyle='hsl('+hue+',80%,'+(25+t*30)+'%)';
+        actx.fillRect(ci*cw,(ARCH_BINS-1-li)*ch,cw,ch);
+      }
+    }
+    if(curBinIdx>=0){
+      const li=Math.floor(curBinIdx/ARCH_BINS), ci=curBinIdx%ARCH_BINS;
+      actx.strokeStyle='hsl(0,90%,70%)';
+      actx.lineWidth=2;
+      actx.strokeRect(ci*cw+1,(ARCH_BINS-1-li)*ch+1,cw-2,ch-2);
+    }
+  }
+  function loop(){
+    if(running){
+      frameCounter++;
+      if(frameCounter>=+fsEl.value){frameCounter=0;step();render();}
+    }
+    requestAnimationFrame(loop);
+  }
+  document.getElementById('run').onclick=()=>{running=!running;};
+  document.getElementById('stepBtn').onclick=()=>{step();render();};
+  document.getElementById('reset').onclick=init;
+  document.getElementById('forget').onclick=()=>{freshLearningState();drawArchive();updateInfo(0,0,'forgot');};
+  symEl.onchange=init;icEl.onchange=init;
+  gvEl.oninput=()=>{go.textContent=gvEl.value;};
+  k1vEl.oninput=()=>{k1o.textContent=k1vEl.value;};
+  k2vEl.oninput=()=>{k2o.textContent=k2vEl.value;};
+  fsEl.oninput=()=>{fso.textContent=fsEl.value;};
+  window.addEventListener('resize',()=>{render();drawTrace();drawArchive();});
+  init();loop();
+})();
+</script>
+</body>
+</html>
