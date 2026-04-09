@@ -115,6 +115,7 @@
   const DEFAULT_G=4, DEFAULT_K1=2, DEFAULT_K2=2;
   const GAMMA=0.92, V_ALPHA=0.15;
   const STUCK_JUMP_THRESHOLD=35, TREND_WINDOW=5;
+  const VIABLE_LIVE_SNAPSHOT=0.14, MAX_VIABLE_AGE=9000, ROLLBACK_PROB=0.78;
   const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
   const tcv=document.getElementById('trace'),tctx=tcv.getContext('2d');
   const acv=document.getElementById('archive'),actx=acv.getContext('2d');
@@ -141,6 +142,7 @@
   const agentB={goal:'exploiter',label:'exploiter',acts:0,deaths:0,eps:0.05};
   let activeAgent=agentA, lastActor=null, agentToggle=0;
   let prevBehavior=null, prevAction=null, prevParams=null;
+  let lvGrid=null, lvTick=-1, lvG=4, lvK1=2, lvK2=2;
   function nnInit(){
     W1=new Float32Array(NN_H*NN_IN);b1=new Float32Array(NN_H);
     W2=new Float32Array(NN_OUT*NN_H);b2=new Float32Array(NN_OUT);
@@ -312,6 +314,38 @@
     }
     return best||ACTIONS[(Math.random()*6)|0];
   }
+  function ensureLvGrid(){
+    if(!lvGrid) lvGrid=new Uint8Array(GRID*GRID);
+  }
+  function captureViableIf(m){
+    if(m.live<VIABLE_LIVE_SNAPSHOT) return;
+    ensureLvGrid();
+    lvGrid.set(g);
+    lvTick=tick;
+    lvG=+gvEl.value;lvK1=+k1vEl.value;lvK2=+k2vEl.value;
+  }
+  function divergeSliders(){
+    setSlider(gvEl,go,Math.max(1,Math.min(30,+gvEl.value+((Math.random()*9)|0)-4)),1,30);
+    setSlider(k1vEl,k1o,Math.max(1,Math.min(15,+k1vEl.value+((Math.random()*7)|0)-3)),1,15);
+    setSlider(k2vEl,k2o,Math.max(1,Math.min(15,+k2vEl.value+((Math.random()*7)|0)-3)),1,15);
+  }
+  function tryRollbackViable(){
+    if(!lvGrid||lvTick<0||(tick-lvTick)>MAX_VIABLE_AGE) return false;
+    if(Math.random()>ROLLBACK_PROB) return false;
+    g.set(lvGrid);
+    setSlider(gvEl,go,lvG,1,30);
+    setSlider(k1vEl,k1o,lvK1,1,15);
+    setSlider(k2vEl,k2o,lvK2,1,15);
+    divergeSliders();
+    return true;
+  }
+  function reseedHeavy(){
+    for(const [x,y] of wedgeCells()){
+      const r=Math.random();
+      if(r<0.09) placeSym(x,y,ILL);
+      else if(r<0.40) placeSym(x,y,1+((Math.random()*(N-2))|0));
+    }
+  }
   function freshLearningState(){
     archive=new Array(ARCH_BINS*ARCH_BINS);
     for(let i=0;i<archive.length;i++) archive[i]={visits:0,lastTick:-1};
@@ -324,6 +358,7 @@
     agentB.acts=0;agentB.deaths=0;
     prevBehavior=null;prevAction=null;prevParams=null;
     lastActor=null;agentToggle=0;
+    lvTick=-1;
   }
   function archIdx(live,chg){
     const li=Math.min(ARCH_BINS-1,Math.max(0,Math.floor(live*ARCH_BINS)));
@@ -386,14 +421,7 @@
     return g[y*GRID+x];
   }
   function reseedRecovery(){
-    const W=wedgeCells();
-    const n=15+((Math.random()*16)|0);
-    for(let k=0;k<n;k++){
-      const [x,y]=W[(Math.random()*W.length)|0];
-      const r=Math.random();
-      if(r<0.14) placeSym(x,y,ILL);
-      else placeSym(x,y,1+((Math.random()*(N-2))|0));
-    }
+    reseedHeavy();
   }
   function step(){
     const G=+gvEl.value,K1=+k1vEl.value,K2=+k2vEl.value;
@@ -476,12 +504,19 @@
     if(prevBinIdx>=0){
       V_table[prevBinIdx]+=V_ALPHA*(curComplexity+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
     }
+    captureViableIf(m);
     const danger=dangerLevel(m);
     if(danger){
       if(!inDangerStreak && lastActor) lastActor.deaths++;
       inDangerStreak=true;
       if(danger==='dead'){
-        reseedRecovery();
+        if(tryRollbackViable()){
+          if(prevBinIdx>=0) V_table[prevBinIdx]-=1.1;
+          prevBehavior=null;prevAction=null;prevParams=null;
+          prevBinIdx=curBinIdx;
+          return 'ROLLBACK revive';
+        }
+        reseedHeavy();
         if(Math.random()<0.42) randomizeParams();
       }
       const act=(m.live<0.05)?extinctionBiasRescue(params):smartRescue(m,params);
@@ -496,7 +531,7 @@
     inDangerStreak=false;
     if(dwellTime>STUCK_JUMP_THRESHOLD){
       randomizeParams();
-      if(m.live<0.08) reseedRecovery();
+      if(m.live<0.08) reseedHeavy();
       dwellTime=0;
       prevBehavior=null;prevAction=null;prevParams=null;
       prevBinIdx=curBinIdx;

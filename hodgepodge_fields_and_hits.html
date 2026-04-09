@@ -126,6 +126,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
   const GAMMA=0.90, V_ALPHA=0.15;
   const STUCK_JUMP_THRESHOLD=28, TREND_WINDOW=5;
   const PLATEAU_CTRL_STEPS=14, PLATEAU_HIST_LEN=50, PLATEAU_CX_SPAN=0.065;
+  const VIABLE_LIVE_SNAPSHOT=0.14, MAX_VIABLE_AGE=9000, ROLLBACK_PROB=0.78;
   const MAX_HITS=6;
   const G_MIN=1,G_MAX=30,K_MIN=1,K_MAX=15;
   const GX_MIN=0.5,GX_MAX=2.0,DW_MIN=0.3,DW_MAX=1.5;
@@ -529,6 +530,50 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
   let activeAgent=agentA, lastActor=null, agentToggle=0;
   let prevBehavior=null, prevAction=null, prevState=null;
   let stepsSinceCxPeak=0, lastPeakCx=0;
+  let lvGrid=null, lvGF=null, lvK1F=null, lvK2F=null, lvTick=-1, lvGx=1, lvDw=0.9;
+
+  function ensureLvBuffers(){
+    if(!lvGrid){
+      lvGrid=new Uint8Array(GRID*GRID);
+      lvGF=new Float32Array(FIELD_N*FIELD_N);
+      lvK1F=new Float32Array(FIELD_N*FIELD_N);
+      lvK2F=new Float32Array(FIELD_N*FIELD_N);
+    }
+  }
+  function captureViableIf(m){
+    if(m.live<VIABLE_LIVE_SNAPSHOT) return;
+    ensureLvBuffers();
+    lvGrid.set(g);
+    lvGF.set(gField);lvK1F.set(k1Field);lvK2F.set(k2Field);
+    lvGx=growthExp;lvDw=diagWeight;
+    lvTick=tick;
+  }
+  function divergeFieldsAfterRollback(){
+    shiftField(gField,(Math.random()-0.45)*2.0,G_MIN,G_MAX);
+    shiftField(k1Field,(Math.random()-0.48)*1.4,K_MIN,K_MAX);
+    shiftField(k2Field,(Math.random()-0.52)*1.6,K_MIN,K_MAX);
+    bumpField(gField,G_MIN,G_MAX);
+    bumpField(k2Field,K_MIN,K_MAX);
+    growthExp=Math.max(GX_MIN,Math.min(GX_MAX,growthExp+(Math.random()-0.5)*0.24));
+    diagWeight=Math.max(DW_MIN,Math.min(DW_MAX,diagWeight+(Math.random()-0.5)*0.2));
+  }
+  function tryRollbackViable(){
+    if(!lvGrid||lvTick<0||(tick-lvTick)>MAX_VIABLE_AGE) return false;
+    if(Math.random()>ROLLBACK_PROB) return false;
+    g.set(lvGrid);
+    gField.set(lvGF);k1Field.set(lvK1F);k2Field.set(lvK2F);
+    growthExp=lvGx;diagWeight=lvDw;
+    fieldsDirty=true;
+    divergeFieldsAfterRollback();
+    return true;
+  }
+  function reseedHeavy(){
+    for(const [x,y] of wedgeCells()){
+      const r=Math.random();
+      if(r<0.09) placeSym(x,y,ILL);
+      else if(r<0.40) placeSym(x,y,1+((Math.random()*(N-2))|0));
+    }
+  }
 
   function complexityPlateauBand(){
     if(histM.length<PLATEAU_HIST_LEN) return false;
@@ -593,6 +638,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     lastActor=null;agentToggle=0;
     stepsSinceCxPeak=0;
     lastPeakCx=0;
+    lvTick=-1;
   }
   function archIdx(live,chg){
     const li=Math.min(ARCH_BINS-1,Math.max(0,Math.floor(live*ARCH_BINS)));
@@ -644,14 +690,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     return g[y*GRID+x];
   }
   function reseedRecovery(){
-    const W=wedgeCells();
-    const n=15+((Math.random()*16)|0);
-    for(let k=0;k<n;k++){
-      const [x,y]=W[(Math.random()*W.length)|0];
-      const r=Math.random();
-      if(r<0.14) placeSym(x,y,ILL);
-      else placeSym(x,y,1+((Math.random()*(N-2))|0));
-    }
+    reseedHeavy();
   }
 
   function step(){
@@ -738,6 +777,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     if(prevBinIdx>=0){
       V_table[prevBinIdx]+=V_ALPHA*(curComplexity+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
     }
+    captureViableIf(m);
     if(curComplexity>lastPeakCx+0.022){
       lastPeakCx=curComplexity;
       stepsSinceCxPeak=0;
@@ -749,7 +789,13 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
       if(!inDangerStreak && lastActor) lastActor.deaths++;
       inDangerStreak=true;
       if(danger==='dead'){
-        reseedRecovery();
+        if(tryRollbackViable()){
+          if(prevBinIdx>=0) V_table[prevBinIdx]-=1.1;
+          prevBehavior=null;prevAction=null;prevState=null;
+          prevBinIdx=curBinIdx;
+          return 'ROLLBACK revive';
+        }
+        reseedHeavy();
         if(Math.random()<0.40){
           for(let i=0;i<gField.length;i++){
             gField[i]=G_MIN+Math.random()*(G_MAX-G_MIN);
@@ -794,7 +840,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
         fieldsDirty=true;
         msg='EXPLORE jump';
       }
-      if(m.live<0.08) reseedRecovery();
+      if(m.live<0.08) reseedHeavy();
       dwellTime=0;
       prevBehavior=null;prevAction=null;prevState=null;
       prevBinIdx=curBinIdx;
