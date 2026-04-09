@@ -33,6 +33,13 @@ Key mechanics:
 - **Greatest-hits memory:** up to 6 snapshots of high-complexity states, including full field state; restored on stuck detection with 70% probability
 - **Larger NN (21→20→4):** wider input to accommodate the richer parameter state
 
+## Live demos
+
+Runnable copies on [novaspivack.com](https://www.novaspivack.com) (Media filenames may include a `-1` suffix if WordPress disambiguated an upload):
+
+- **Trend-aware agents:** [hodgepodge_trend_aware-1.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_trend_aware-1.html)
+- **Spatial fields + greatest hits:** [hodgepodge_fields_and_hits-1.html](https://www.novaspivack.com/wp-content/uploads/2026/04/hodgepodge_fields_and_hits-1.html)
+
 ## How to run
 
 Open either `.html` file directly in a browser. No server, no install, no dependencies. Everything runs in-page.
