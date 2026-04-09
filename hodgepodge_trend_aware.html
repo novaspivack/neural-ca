@@ -234,6 +234,18 @@
     }
     return best||ACTIONS[(Math.random()*6)|0];
   }
+  function extinctionBiasRescue(params){
+    const pool=[
+      {param:'g',dir:1},{param:'g',dir:1},{param:'g',dir:1},
+      {param:'k1',dir:1},
+      {param:'k2',dir:-1},{param:'k2',dir:-1}
+    ];
+    for(let t=0;t<10;t++){
+      const act=pool[(Math.random()*pool.length)|0];
+      if(actionInBounds(act,params)) return act;
+    }
+    return ACTIONS[(Math.random()*6)|0];
+  }
   function pickFleeAction(behavior,params,flee){
     let best=null, bestScore=-Infinity;
     for(const act of ACTIONS){
@@ -358,7 +370,7 @@
     freshLearningState();
     resetParams();
     const C=GRID/2, mode=icEl.value;
-    if(mode==='sparse'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.04)placeSym(x,y,ILL);else if(r<0.2)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
+    if(mode==='sparse'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.055)placeSym(x,y,ILL);else if(r<0.28)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
     else if(mode==='dense'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.15)placeSym(x,y,ILL);else if(r<0.55)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
     else if(mode==='noise'){for(const [x,y] of wedgeCells())placeSym(x,y,(Math.random()*N)|0);}
     else if(mode==='single'){placeSym((C|0)-1,(C|0)-1,ILL);}
@@ -373,9 +385,15 @@
     if(y<0)y=-y-1; else if(y>=GRID)y=2*GRID-1-y;
     return g[y*GRID+x];
   }
-  function reseedSparse(){
+  function reseedRecovery(){
     const W=wedgeCells();
-    for(let k=0;k<8;k++){const [x,y]=W[(Math.random()*W.length)|0];placeSym(x,y,ILL);}
+    const n=15+((Math.random()*16)|0);
+    for(let k=0;k<n;k++){
+      const [x,y]=W[(Math.random()*W.length)|0];
+      const r=Math.random();
+      if(r<0.14) placeSym(x,y,ILL);
+      else placeSym(x,y,1+((Math.random()*(N-2))|0));
+    }
   }
   function step(){
     const G=+gvEl.value,K1=+k1vEl.value,K2=+k2vEl.value;
@@ -458,19 +476,15 @@
     if(prevBinIdx>=0){
       V_table[prevBinIdx]+=V_ALPHA*(curComplexity+GAMMA*V_table[curBinIdx]-V_table[prevBinIdx]);
     }
-    if(dwellTime>STUCK_JUMP_THRESHOLD){
-      randomizeParams();
-      dwellTime=0;
-      prevBehavior=null;prevAction=null;prevParams=null;
-      prevBinIdx=curBinIdx;
-      return 'EXPLORE jump';
-    }
     const danger=dangerLevel(m);
     if(danger){
       if(!inDangerStreak && lastActor) lastActor.deaths++;
       inDangerStreak=true;
-      if(danger==='dead' && tick%30===0) reseedSparse();
-      const act=smartRescue(m,params);
+      if(danger==='dead'){
+        reseedRecovery();
+        if(Math.random()<0.42) randomizeParams();
+      }
+      const act=(m.live<0.05)?extinctionBiasRescue(params):smartRescue(m,params);
       applyAction(act);
       if(prevBinIdx>=0) V_table[prevBinIdx]-=0.5;
       prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
@@ -480,6 +494,14 @@
       return danger.toUpperCase()+' '+act.param+(act.dir>0?'↑':'↓');
     }
     inDangerStreak=false;
+    if(dwellTime>STUCK_JUMP_THRESHOLD){
+      randomizeParams();
+      if(m.live<0.08) reseedRecovery();
+      dwellTime=0;
+      prevBehavior=null;prevAction=null;prevParams=null;
+      prevBinIdx=curBinIdx;
+      return 'EXPLORE jump';
+    }
     const flee=detectFleeMode(m);
     if(flee){
       const act=pickFleeAction(m,params,flee);

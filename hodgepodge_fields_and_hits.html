@@ -472,6 +472,20 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     }
     return best||ACTIONS[(Math.random()*NUM_ACTIONS)|0];
   }
+  function extinctionBiasRescueFields(state){
+    const pool=[
+      {type:'mean',param:'g',dir:+1},{type:'mean',param:'g',dir:+1},
+      {type:'mean',param:'k1',dir:+1},
+      {type:'mean',param:'k2',dir:-1},{type:'mean',param:'k2',dir:-1},
+      {type:'bump',param:'g'},
+      {type:'knob',param:'growthExp',dir:+1}
+    ];
+    for(let t=0;t<12;t++){
+      const act=pool[(Math.random()*pool.length)|0];
+      if(actionInBounds(act,state)) return act;
+    }
+    return ACTIONS[(Math.random()*NUM_ACTIONS)|0];
+  }
 
   let hits=[];
   function considerSnapshot(){
@@ -615,7 +629,7 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     freshLearningState();
     resetFields();
     const C=GRID/2, mode=icEl.value;
-    if(mode==='sparse'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.04)placeSym(x,y,ILL);else if(r<0.2)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
+    if(mode==='sparse'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.055)placeSym(x,y,ILL);else if(r<0.28)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
     else if(mode==='dense'){for(const [x,y] of wedgeCells()){const r=Math.random();if(r<0.15)placeSym(x,y,ILL);else if(r<0.55)placeSym(x,y,1+((Math.random()*(N-2))|0));}}
     else if(mode==='noise'){for(const [x,y] of wedgeCells())placeSym(x,y,(Math.random()*N)|0);}
     else if(mode==='single'){placeSym((C|0)-1,(C|0)-1,ILL);}
@@ -629,9 +643,15 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     if(y<0)y=-y-1; else if(y>=GRID)y=2*GRID-1-y;
     return g[y*GRID+x];
   }
-  function reseedSparse(){
+  function reseedRecovery(){
     const W=wedgeCells();
-    for(let k=0;k<8;k++){const [x,y]=W[(Math.random()*W.length)|0];placeSym(x,y,ILL);}
+    const n=15+((Math.random()*16)|0);
+    for(let k=0;k<n;k++){
+      const [x,y]=W[(Math.random()*W.length)|0];
+      const r=Math.random();
+      if(r<0.14) placeSym(x,y,ILL);
+      else placeSym(x,y,1+((Math.random()*(N-2))|0));
+    }
   }
 
   function step(){
@@ -724,6 +744,33 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
     } else {
       stepsSinceCxPeak++;
     }
+    const danger=dangerLevel(m);
+    if(danger){
+      if(!inDangerStreak && lastActor) lastActor.deaths++;
+      inDangerStreak=true;
+      if(danger==='dead'){
+        reseedRecovery();
+        if(Math.random()<0.40){
+          for(let i=0;i<gField.length;i++){
+            gField[i]=G_MIN+Math.random()*(G_MAX-G_MIN);
+            k1Field[i]=K_MIN+Math.random()*10;
+            k2Field[i]=K_MIN+Math.random()*10;
+          }
+          growthExp=GX_MIN+Math.random()*(GX_MAX-GX_MIN);
+          diagWeight=DW_MIN+Math.random()*(DW_MAX-DW_MIN);
+          fieldsDirty=true;
+        }
+      }
+      const act=(m.live<0.05)?extinctionBiasRescueFields(state):smartRescue(m,state);
+      applyAction(act);
+      if(prevBinIdx>=0) V_table[prevBinIdx]-=0.5;
+      prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
+      prevAction=act;
+      prevState=state;
+      prevBinIdx=curBinIdx;
+      return danger.toUpperCase()+' '+describeAct(act);
+    }
+    inDangerStreak=false;
     const bandFlat=complexityPlateauBand();
     if((stepsSinceCxPeak>=PLATEAU_CTRL_STEPS&&curComplexity>=0.28)||(bandFlat&&stepsSinceCxPeak>=9&&curComplexity>=0.35)){
       stepsSinceCxPeak=0;
@@ -747,26 +794,12 @@ h1 { font-size: 18px; font-weight: 500; margin: 0 0 1rem; }
         fieldsDirty=true;
         msg='EXPLORE jump';
       }
+      if(m.live<0.08) reseedRecovery();
       dwellTime=0;
       prevBehavior=null;prevAction=null;prevState=null;
       prevBinIdx=curBinIdx;
       return msg;
     }
-    const danger=dangerLevel(m);
-    if(danger){
-      if(!inDangerStreak && lastActor) lastActor.deaths++;
-      inDangerStreak=true;
-      if(danger==='dead' && tick%30===0) reseedSparse();
-      const act=smartRescue(m,state);
-      applyAction(act);
-      if(prevBinIdx>=0) V_table[prevBinIdx]-=0.5;
-      prevBehavior={live:m.live,chg:m.chg,edges:m.edges,svar:m.svar};
-      prevAction=act;
-      prevState=state;
-      prevBinIdx=curBinIdx;
-      return danger.toUpperCase()+' '+describeAct(act);
-    }
-    inDangerStreak=false;
     const flee=detectFleeMode(m);
     if(flee){
       const act=pickFleeAction(m,state,flee);
